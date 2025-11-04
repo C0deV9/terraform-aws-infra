@@ -1,0 +1,47 @@
+# Node dependencies
+node_modules/
+npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+
+# Environment files
+.env
+*.env
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/crash.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
+
+# VSCode and system files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local SSH or key files
+*.pem
+*.key
+*.pub
+.ssh/
+
+# Temporary files
+*.tmp
+*.swp
+*.bak

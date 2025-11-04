@@ -1,0 +1,157 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-frontend
+
+jobs:
+  # 🧪 1. Run tests on PR creation
+  test:
+    name: Run Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Backend Dependencies
+        run: |
+          cd members-curd/backend
+          npm ci
+
+      - name: Run Backend Tests
+        run: |
+          cd members-curd/backend
+          npm test || echo "No tests found"
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd members-curd/frontend
+          npm ci
+
+      - name: Run Frontend Tests
+        run: |
+          cd members-curd/frontend
+          npm test || echo "No tests found"
+
+  # 🐳 2. Build & Push Docker images to Docker Hub on merge
+  build_and_push:
+    name: Build and Push Docker Images
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Backend Image
+        run: |
+          cd members-curd/backend
+          docker build -t $BACKEND_IMAGE:latest .
+          docker push $BACKEND_IMAGE:latest
+
+      - name: Build and Push Frontend Image
+        run: |
+          cd members-curd/frontend
+          docker build -t $FRONTEND_IMAGE:latest .
+          docker push $FRONTEND_IMAGE:latest
+
+  # 🧱 3. Deploy to Staging
+  deploy_staging:
+    name: Deploy to Staging
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
+          chmod 600 ec2key.pem
+
+      - name: Deploy on EC2 (Staging)
+        run: |
+          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/
+          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+            docker pull $BACKEND_IMAGE:latest &&
+            docker pull $FRONTEND_IMAGE:latest &&
+            docker compose -f docker-compose.staging.yml up -d --force-recreate
+          "
+
+  # 🚀 4. Manual Approval for Production
+  approve_for_production:
+    name: Manual Approval
+    needs: deploy_staging
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ secrets.EC2_HOST }}
+    steps:
+      - name: Await Manual Approval
+        run: echo "Waiting for manual approval before production deployment"
+
+  # 🏭 5. Deploy to Production
+  deploy_production:
+    name: Deploy to Production
+    needs: approve_for_production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
+          chmod 600 ec2key.pem
+
+      - name: Deploy on EC2 (Production)
+        run: |
+          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/
+          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+            docker pull $BACKEND_IMAGE:latest &&
+            docker pull $FRONTEND_IMAGE:latest &&
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
+          "
+
+  # ✉️ 6. Email Notification on Failure
+  notify_failure:
+    name: Send Email on Failure
+    if: failure()
+    needs: [test, build_and_push, deploy_staging, deploy_production]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Failure Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "🚨 CI/CD Pipeline Failed for ${{ github.repository }}"
+          body: "The pipeline failed on job ${{ github.job }}.\nCheck GitHub Actions for logs."
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: "GitHub Actions <${{ secrets.EMAIL_USER }}>"

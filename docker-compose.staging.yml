@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+  backend:
+    image: ${DOCKERHUB_USERNAME}/members-backend:latest
+    container_name: members-backend-staging
+    restart: always
+    ports:
+      - "5001:5000" # host:container
+    environment:
+      - NODE_ENV=staging
+      - PORT=5000
+      - MONGO_URI=${MONGO_URI}
+    networks:
+      - members-network
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/members-frontend:latest
+    container_name: members-frontend-staging
+    restart: always
+    ports:
+      - "8081:80" # frontend accessible on EC2:8081
+    environment:
+      - NODE_ENV=staging
+      - VITE_API_URL=http://<EC2-PUBLIC-IP>:5001
+    networks:
+      - members-network
+
+networks:
+  members-network:
+    driver: bridge
