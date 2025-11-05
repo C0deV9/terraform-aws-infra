@@ -96,14 +96,23 @@ jobs:
           scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@$EC2_HOST:/home/ubuntu/
           ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
             set -e
-            # 🐳 Install & enable Docker inside EC2
+            # Install & enable Docker inside EC2
             sudo apt-get update -y
-            sudo apt-get install -y docker.io docker-compose-plugin
+            sudo apt-get install -y ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo \
+              'deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable' | \
+              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            sudo apt-get update -y
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
             sudo systemctl enable docker
             sudo systemctl start docker
             sudo usermod -aG docker ubuntu
 
-            # 🚀 Pull and run containers
+            # Pull and run containers
             docker pull $BACKEND_IMAGE:latest
             docker pull $FRONTEND_IMAGE:latest
             docker compose -f docker-compose.staging.yml up -d --force-recreate
@@ -139,14 +148,23 @@ jobs:
           scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@$EC2_HOST:/home/ubuntu/
           ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
             set -e
-            # 🐳 Install & enable Docker inside EC2
+            # Install & enable Docker inside EC2
             sudo apt-get update -y
-            sudo apt-get install -y docker.io docker-compose-plugin
+            sudo apt-get install -y ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            echo \
+              'deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable' | \
+              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            sudo apt-get update -y
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
             sudo systemctl enable docker
             sudo systemctl start docker
             sudo usermod -aG docker ubuntu
 
-            # 🚀 Pull and run containers
+            # Pull and run containers
             docker pull $BACKEND_IMAGE:latest
             docker pull $FRONTEND_IMAGE:latest
             docker compose -f docker-compose.staging.yml up -d --force-recreate
