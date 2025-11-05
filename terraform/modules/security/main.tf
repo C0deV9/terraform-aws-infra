@@ -16,12 +16,24 @@ resource "aws_security_group" "alb_sg" {
 
 resource "aws_security_group" "ec2_sg" {
   vpc_id = var.vpc_id
+  # Allow SSH from anywhere (for GitHub Actions)
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow SSH from anywhere (useful for CI/CD runners)"
+  }
+
+  # Allow app traffic from ALB
   ingress {
     from_port       = 3000
     to_port         = 3000
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
+    description     = "Allow inbound app traffic from ALB"
   }
+  
   egress {
     from_port   = 0
     to_port     = 0
