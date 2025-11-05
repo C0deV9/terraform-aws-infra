@@ -1,9 +1,9 @@
 name: CI/CD Pipeline
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -16,175 +16,116 @@ env:
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-frontend
 
 jobs:
-  # 🧪 1. Run tests
+  # 1. Test
   test:
-    name: Run Unit & Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Install Backend Dependencies
-        run: |
-          cd members-curd/backend
-          npm ci
+          node-version: 20
 
       - name: Run Backend Tests
         run: |
           cd members-curd/backend
-          npm test || echo "No backend tests found"
-
-      - name: Install Frontend Dependencies
-        run: |
-          cd members-curd/frontend
           npm ci
+          npm test || echo "No backend tests"
 
       - name: Run Frontend Tests
         run: |
           cd members-curd/frontend
-          npm test || echo "No frontend tests found"
+          npm ci
+          npm test || echo "No frontend tests"
 
-  # 🐳 2. Build & Push Docker images
+  # 2. Build & Push Docker Images
   build_and_push:
-    name: Build and Push Docker Images
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and Push Backend Image
+      - name: Build & Push Backend Image
         run: |
           cd members-curd/backend
           docker build -t $BACKEND_IMAGE:latest .
           docker push $BACKEND_IMAGE:latest
 
-      - name: Build and Push Frontend Image
+      - name: Build & Push Frontend Image
         run: |
           cd members-curd/frontend
           docker build -t $FRONTEND_IMAGE:latest .
           docker push $FRONTEND_IMAGE:latest
 
-  # 🚀 3. Deploy to Staging
-  deploy_staging:
-    name: Deploy to Staging
+  # 3. Deploy (shared logic for EC2)
+  deploy:
+    name: Deploy to EC2
     needs: build_and_push
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env_name: [staging, production]
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup SSH Key
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
           chmod 600 ec2key.pem
 
-      - name: Deploy on EC2 (Staging)
+      - name: Deploy on EC2 - ${{ matrix.env_name }}
         run: |
-          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@$EC2_HOST:/home/ubuntu/
+          FILE=docker-compose.${{ matrix.env_name }}.yml
+          scp -i ec2key.pem -o StrictHostKeyChecking=no $FILE ubuntu@$EC2_HOST:/home/ubuntu/
           ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
             set -e
-            # Install & enable Docker inside EC2
             sudo apt-get update -y
             sudo apt-get install -y ca-certificates curl gnupg
             sudo install -m 0755 -d /etc/apt/keyrings
             curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             echo \
-              'deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-              https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable' | \
+              'deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/ubuntu \$(. /etc/os-release && echo \$VERSION_CODENAME) stable' | \
               sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
             sudo apt-get update -y
             sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-            sudo systemctl enable docker
-            sudo systemctl start docker
+            sudo systemctl enable docker || true
+            sudo systemctl start docker || true
             sudo usermod -aG docker ubuntu
-
-            # Pull and run containers
             docker pull $BACKEND_IMAGE:latest
             docker pull $FRONTEND_IMAGE:latest
-            docker compose -f docker-compose.staging.yml up -d --force-recreate
+            docker compose -f $FILE up -d --force-recreate
           "
 
-  # 🧭 4. Manual approval before production
-  approve_for_production:
-    name: Manual Approval
-    needs: deploy_staging
+  # 4. Manual approval before production
+  approve_production:
+    name: Manual Approval for Production
+    needs: deploy
     runs-on: ubuntu-latest
+    if: contains(needs.deploy.outputs.matrix, 'production')
     environment:
       name: production
     steps:
-      - name: Await Manual Approval
-        run: echo "Waiting for manual approval before production deployment"
+      - run: echo "✅ Waiting for manual approval before deploying to production"
 
-  # 🏭 5. Deploy to Production
-  deploy_production:
-    name: Deploy to Production
-    needs: approve_for_production
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup SSH Key
-        run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
-          chmod 600 ec2key.pem
-
-      - name: Deploy on EC2 (Production)
-        run: |
-          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@$EC2_HOST:/home/ubuntu/
-          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
-            set -e
-            # Install & enable Docker inside EC2
-            sudo apt-get update -y
-            sudo apt-get install -y ca-certificates curl gnupg
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            echo \
-              'deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-              https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable' | \
-              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-            sudo apt-get update -y
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-            sudo systemctl enable docker
-            sudo systemctl start docker
-            sudo usermod -aG docker ubuntu
-
-            # Pull and run containers
-            docker pull $BACKEND_IMAGE:latest
-            docker pull $FRONTEND_IMAGE:latest
-            docker compose -f docker-compose.staging.yml up -d --force-recreate
-          "
-
-  # ✉️ 6. Email Notification on Failure
+  # 5. Notify on failure
   notify_failure:
-    name: Send Email on Failure
     if: failure()
-    needs: [test, build_and_push, deploy_staging, deploy_production]
+    needs: [test, build_and_push, deploy]
     runs-on: ubuntu-latest
     steps:
-      - name: Send Failure Email
-        uses: dawidd6/action-send-mail@v3
+      - uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "🚨 CI/CD Pipeline Failed for ${{ github.repository }}"
-          body: "The pipeline failed on job ${{ github.job }}.\nCheck GitHub Actions for logs."
+          subject: "🚨 CI/CD Pipeline Failed - ${{ github.repository }}"
+          body: "Pipeline failed on job ${{ github.job }}. Check logs for details."
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: "GitHub Actions <${{ secrets.EMAIL_USER }}>"
+
