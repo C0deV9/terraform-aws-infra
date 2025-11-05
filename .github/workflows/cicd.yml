@@ -91,20 +91,21 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
           chmod 600 ec2key.pem
 
-      - name: Install Docker an enable it
-        run: |
-              sudo apt-get update -y && 
-              sudo apt-get install -y docker.io docker-compose
-              sudo usermod -aG docker ubuntu
-              sudo systemctl enable docker
-              sudo systemctl start docker
-
       - name: Deploy on EC2 (Staging)
         run: |
           scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@$EC2_HOST:/home/ubuntu/
           ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
-            docker pull $BACKEND_IMAGE:latest &&
-            docker pull $FRONTEND_IMAGE:latest &&
+            set -e
+            # 🐳 Install & enable Docker inside EC2
+            sudo apt-get update -y
+            sudo apt-get install -y docker.io docker-compose-plugin
+            sudo systemctl enable docker
+            sudo systemctl start docker
+            sudo usermod -aG docker ubuntu
+
+            # 🚀 Pull and run containers
+            docker pull $BACKEND_IMAGE:latest
+            docker pull $FRONTEND_IMAGE:latest
             docker compose -f docker-compose.staging.yml up -d --force-recreate
           "
 
@@ -133,21 +134,22 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
           chmod 600 ec2key.pem
 
-      - name: Install Docker an enable it
-        run: |
-              sudo apt-get update -y && 
-              sudo apt-get install -y docker.io docker-compose
-              sudo usermod -aG docker ubuntu
-              sudo systemctl enable docker
-              sudo systemctl start docker
-
       - name: Deploy on EC2 (Production)
         run: |
           scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@$EC2_HOST:/home/ubuntu/
           ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
-            docker pull $BACKEND_IMAGE:latest &&
-            docker pull $FRONTEND_IMAGE:latest &&
-            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            set -e
+            # 🐳 Install & enable Docker inside EC2
+            sudo apt-get update -y
+            sudo apt-get install -y docker.io docker-compose-plugin
+            sudo systemctl enable docker
+            sudo systemctl start docker
+            sudo usermod -aG docker ubuntu
+
+            # 🚀 Pull and run containers
+            docker pull $BACKEND_IMAGE:latest
+            docker pull $FRONTEND_IMAGE:latest
+            docker compose -f docker-compose.staging.yml up -d --force-recreate
           "
 
   # ✉️ 6. Email Notification on Failure
