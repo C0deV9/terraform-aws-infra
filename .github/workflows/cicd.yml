@@ -5,18 +5,18 @@ on:
     branches: [ main ]
   push:
     branches: [ main ]
-  workflow_dispatch:  # allows manual trigger from GitHub Actions tab
-  workflow_call:   # allows this workflow to be called by other workflows
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+  EC2_HOST: ${{ secrets.EC2_HOST }}
   BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-backend
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-frontend
 
 jobs:
-  # 1. Run tests on PR creation
+  # 🧪 1. Run tests
   test:
     name: Run Unit & Integration Tests
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
       - name: Run Backend Tests
         run: |
           cd members-curd/backend
-          npm test || echo "No tests found"
+          npm test || echo "No backend tests found"
 
       - name: Install Frontend Dependencies
         run: |
@@ -47,9 +47,9 @@ jobs:
       - name: Run Frontend Tests
         run: |
           cd members-curd/frontend
-          npm test || echo "No tests found"
+          npm test || echo "No frontend tests found"
 
-  # 2. Build & Push Docker images to Docker Hub on merge
+  # 🐳 2. Build & Push Docker images
   build_and_push:
     name: Build and Push Docker Images
     needs: test
@@ -77,7 +77,7 @@ jobs:
           docker build -t $FRONTEND_IMAGE:latest .
           docker push $FRONTEND_IMAGE:latest
 
-  # 3. Deploy to Staging
+  # 🚀 3. Deploy to Staging
   deploy_staging:
     name: Deploy to Staging
     needs: build_and_push
@@ -85,9 +85,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Load EC2 Host from Secrets
-        run: echo "EC2_HOST=${{ secrets.EC2_HOST }}" >> $GITHUB_ENV
 
       - name: Setup SSH Key
         run: |
@@ -103,7 +100,7 @@ jobs:
             docker compose -f docker-compose.staging.yml up -d --force-recreate
           "
 
-  # 4. Manual Approval for Production
+  # 🧭 4. Manual approval before production
   approve_for_production:
     name: Manual Approval
     needs: deploy_staging
@@ -114,7 +111,7 @@ jobs:
       - name: Await Manual Approval
         run: echo "Waiting for manual approval before production deployment"
 
-  # 5. Deploy to Production
+  # 🏭 5. Deploy to Production
   deploy_production:
     name: Deploy to Production
     needs: approve_for_production
@@ -122,9 +119,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Load EC2 Host from Secrets
-        run: echo "EC2_HOST=${{ secrets.EC2_HOST }}" >> $GITHUB_ENV
 
       - name: Setup SSH Key
         run: |
@@ -140,7 +134,7 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d --force-recreate
           "
 
-  # 6. Email Notification on Failure
+  # ✉️ 6. Email Notification on Failure
   notify_failure:
     name: Send Email on Failure
     if: failure()
