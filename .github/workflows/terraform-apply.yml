@@ -19,6 +19,7 @@ jobs:
   terraform_apply:
     name: Terraform Init, Plan, and Apply
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,6 +29,15 @@ jobs:
         with:
           terraform_version: 1.9.7
 
+      # Step 1 — Attempt to unlock stale Terraform state (safe cleanup)
+      - name: Force unlock previous Terraform lock (if exists)
+        continue-on-error: true
+        run: |
+          cd terraform
+          echo "Checking for existing state lock..."
+          terraform force-unlock -force $(terraform show -json | jq -r '.values.root_module.resources[]?.values.id?' | head -n 1) || echo "No lock found or force-unlock skipped."
+
+      # Step 2 — Initialize Terraform backend
       - name: Terraform Init
         run: |
           cd terraform
@@ -37,16 +47,19 @@ jobs:
             -backend-config="region=$AWS_REGION" \
             -backend-config="dynamodb_table=$TF_BACKEND_TABLE"
 
+      # Step 3 — Plan changes
       - name: Terraform Plan
         run: |
           cd terraform
-          terraform plan -out=tfplan
+          terraform plan -lock-timeout=60s -out=tfplan
 
+      # Step 4 — Apply infrastructure
       - name: Terraform Apply
         run: |
           cd terraform
-          terraform apply -auto-approve tfplan
+          terraform apply -lock-timeout=60s -auto-approve tfplan
 
+      # Step 5 — Get EC2 public IP
       - name: Get EC2 Public IP
         id: get_ip
         run: |
@@ -55,6 +68,7 @@ jobs:
           echo "EC2_HOST=$(cat ec2_ip.txt)" >> $GITHUB_ENV
           echo "✅ EC2 public IP: $(cat ec2_ip.txt)"
 
+      # Step 6 — Trigger the next workflow automatically
       - name: Trigger Update EC2 Secret Workflow
         uses: benc-uk/workflow-dispatch@v1
         with:
