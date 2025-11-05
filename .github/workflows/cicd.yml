@@ -91,6 +91,14 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
           chmod 600 ec2key.pem
 
+      - name: Install Docker an enable it
+        run: |
+              sudo apt-get update -y && 
+              sudo apt-get install -y docker.io docker-compose
+              sudo usermod -aG docker ubuntu
+              sudo systemctl enable docker
+              sudo systemctl start docker
+
       - name: Deploy on EC2 (Staging)
         run: |
           scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@$EC2_HOST:/home/ubuntu/
@@ -124,6 +132,14 @@ jobs:
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
           chmod 600 ec2key.pem
+
+      - name: Install Docker an enable it
+        run: |
+              sudo apt-get update -y && 
+              sudo apt-get install -y docker.io docker-compose
+              sudo usermod -aG docker ubuntu
+              sudo systemctl enable docker
+              sudo systemctl start docker
 
       - name: Deploy on EC2 (Production)
         run: |
