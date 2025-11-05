@@ -2,17 +2,14 @@ name: CI/CD Pipeline
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  EC2_HOST: ${{ secrets.EC2_HOST }}
   EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
   BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-backend
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/members-frontend
@@ -88,6 +85,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.7
+
+      - name: Get Terraform EC2 Host
+        id: tf_output
+        run: |
+          cd terraform
+          terraform init -backend=false
+          echo "EC2_HOST=$(terraform output -raw ec2_public_ip)" >> $GITHUB_ENV
+
       - name: Setup SSH Key
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
@@ -95,8 +104,8 @@ jobs:
 
       - name: Deploy on EC2 (Staging)
         run: |
-          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/
-          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.staging.yml ubuntu@$EC2_HOST:/home/ubuntu/
+          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
             docker pull $BACKEND_IMAGE:latest &&
             docker pull $FRONTEND_IMAGE:latest &&
             docker compose -f docker-compose.staging.yml up -d --force-recreate
@@ -109,7 +118,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://${{ secrets.EC2_HOST }}
     steps:
       - name: Await Manual Approval
         run: echo "Waiting for manual approval before production deployment"
@@ -123,6 +131,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.7
+
+      - name: Get Terraform EC2 Host
+        id: tf_output_prod
+        run: |
+          cd terraform
+          terraform init -backend=false
+          echo "EC2_HOST=$(terraform output -raw ec2_public_ip)" >> $GITHUB_ENV
+
       - name: Setup SSH Key
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2key.pem
@@ -130,8 +150,8 @@ jobs:
 
       - name: Deploy on EC2 (Production)
         run: |
-          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/
-          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+          scp -i ec2key.pem -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@$EC2_HOST:/home/ubuntu/
+          ssh -i ec2key.pem -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
             docker pull $BACKEND_IMAGE:latest &&
             docker pull $FRONTEND_IMAGE:latest &&
             docker compose -f docker-compose.prod.yml up -d --force-recreate
